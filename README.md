@@ -25,18 +25,14 @@ Here is the ./etc/nginx folder which will be used to map into the Nginx Containe
     ├── nginx.conf
     ├── sites-enabled
     └── ssl
-        ├── nginx.crt
-        └── nginx.key
+        ├── nginx.crt (auto generated)
+        └── nginx.key (auto generated)
 
 ```
 
 # Run
 
-## 1.) Create your SSL certificate and key:
-```
-./create-ssl-certificate.sh (you can just hit 'y' to use auto configuration)
-```
-## 2.) Start Nginx Proxy Server:
+Start Nginx Proxy Server
 ```
 ./run.sh
 ```
