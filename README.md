@@ -1,42 +1,55 @@
-# docker-nginx-reverse-proxy
-Docker image for a reverse proxy, powered by nginx.
+# Nginx Reverse Proxy Docker Container
+Docker image for a reverse proxy, powered by nginx. 
 
-##Build
+# Concept
+This git / docker image is desinged to demo with examples for reverse proxy together with two other Docker containers so that people can easily learn how to create reverse proxy using this Docker container:
+* openkbs/nginx-reverse-proxy-docker
+* openkbs/jetty-fileserver, and
+* openkbs/rest-dev-vnc-docker
 
-To create the image `lerenn/nginx-reverse-proxy`, execute the following command on the openvpn-server project folder:
+By showing the actual working examples as the part of the demo, template, and actual configuratons, you can easily adapt or modify to become your own. 
 
-    docker build -t lerenn/nginx-reverse-proxy .
+# Nginx Configuration Folder
+All you need to do is to provide ./etc/nginx configuration folder and launch this Docker container, then you have your customized Nginx Server.
+Here is the ./etc/nginx folder which will be used to map into the Nginx Container when using "./run.sh" or "docker-compose up -d":
 
-##Run
+```
+./etc
+└── nginx
+    ├── certificates
+    ├── conf.d
+    │   ├── jetty.conf
+    │   ├── noVNC.conf
+    │   └── proxy.conf
+    ├── mime.types
+    ├── nginx.conf
+    ├── sites-enabled
+    └── ssl
+        ├── nginx.crt
+        └── nginx.key
 
-To run the image with a minimum of arguments, execute the following command :
+```
 
-    docker run -d lerenn/nginx-reverse-proxy
+# Run
 
-However, if you want to use a reverse-proxy on HTTP only websites :
+## 1.) Create your SSL certificate and key:
+```
+./create-ssl-certificate.sh (you can just hit 'y' to use auto configuration)
+```
+## 2.) Start Nginx Proxy Server:
+```
+./run.sh
+```
+or, for full demo with two other docker server containers
+```
+docker-compose up
+```
 
-    docker run -d -p 80:80 -v /path/in/host:/etc/nginx/sites-enabled lerenn/nginx-reverse-proxy
-
-And if you want to use a reverse-proxy on HTTP and/or HTTPS websites :
-
-    docker run -d -p 80:80 -p 443:443 -v /path/in/host:/etc/nginx/sites-enabled -v /path/in/host:/etc/nginx/certificates lerenn/nginx-reverse-proxy
-
-##Arguments
-
-###Volumes
+# Volumes
 
 * **/etc/nginx/sites-enabled**: Should contains nginx configurations for redirections to websites/web apps.
 * **/etc/nginx/certificates**: Should contains certificates used in nginx redirection configurations.
 
-### Ports
-
-* **80**: HTTP port.
-* **443**: HTTPS port.
-
-### Links
-
-Add links to other container with `--link source-container-name:alias-container-name` as an argument.
-Then, you'll have to add `http://alias-container-name` into your nginx website/webapp configuration to redirect flux.
 # References
 * [Nginx-Examples](https://www.nginx.com/resources/wiki/start/topics/examples/full/)
 * [Nginx + noVNC as Reverse Proxy](https://github.com/novnc/noVNC/wiki/Proxying-with-nginx)

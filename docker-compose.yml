@@ -10,10 +10,10 @@ services:
     env_file:
       - ./docker.env
     ports: # 8443 25901 26901 28080
-      - 8443:8443
-      - 28080:28080
-      - 25901:25901
-      - 26901:26901
+      - 8443:8443   #  Proxy access 8443/26901 -> 6901
+      - 25901:25901 #  Proxy access 25901 -> 5901
+      - 26901:26901 #  Proxy access 8443/26901 -> 6901
+      - 28080:28080 # Proxy access 28080 -> 18080 -> 8080
     volumes:
       - ./etc/nginx:/etc/nginx
 
@@ -31,7 +31,7 @@ services:
     #  - ./.env
     ports: 
       - 5901:5901
-      - 6901:6901 #  Proxy access 8443/26901 -> 6901 -> 8080
+      - 6901:6901 #  Proxy access 8443/26901 -> 6901
     volumes:
       - ./workspace:/home/developer/workspace
       - ./.eclipse:/home/developer/.eclipse

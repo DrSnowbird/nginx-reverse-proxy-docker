@@ -1,32 +1,38 @@
-#FROM debian:stretch
+ARG BASE_IMAGE=debian:stretch
 #FROM centos:7
-FROM openkbs/jdk-mvn-py3
+#FROM openkbs/jdk-mvn-py3
 
-# Installation: NGINX & dnsmasq
+FROM $BASE_IMAGE
+
+#### ---- Installation: NGINX & dnsmasq ---- ####
 RUN apt-get update
 RUN apt-get install -y nginx curl dnsmasq
 
-# Volumes
+#### ---- Volumes ---- ####
 VOLUME /etc/nginx
-#VOLUME /etc/nginx/ssl
-#VOLUME /etc/nginx/sites-enabled
-#VOLUME /etc/nginx/certificates
-#VOLUME /etc/nginx/conf.d
 
-# Copie des fichiers de configuration
-#COPY confs /etc/nginx/
+#### ---- Ports ---- ####
+EXPOSE 8443 25901 26901 28080 
 
-#RUN mkdir -p /etc/nginx
-#COPY ./etc/nginx/nginx.conf /etc/nginx/nginx.conf
+#### ---- Scripts ---- ####
+RUN mkdir /scripts && apt-get install -y sudo gosu 
 
-#COPY confs/conf.d/proxy.conf /etc/nginx/conf.d/
+COPY ./scripts/create-ssl-certificate-default.sh /scripts
+COPY ./scripts/add-user.sh /scripts
+COPY ./scripts/add-user-sudo.sh /scripts
+COPY ./docker-entrypoint.sh /scripts
 
-# Ports
-EXPOSE 28080 26901 25901
+ENV USER=nginx
+ENV NON_ROOT_USER=${USER}
+
+#### ---- Entrypoint ---- ####
+ENTRYPOINT ["/scripts/docker-entrypoint.sh"]
 
 # Add command
 # CMD ["nginx", "-g", "daemon off;", "-c /etc/nginx/nginx.conf", "-t"]
 CMD ["nginx", "-g", "daemon off;"]
+
+#### ---- Debug only ---- ####
 #CMD "/bin/bash"
 
 #HEALTHCHECK CMD curl --fail http://localhost:28080 || exit 1

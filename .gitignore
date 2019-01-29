@@ -24,7 +24,9 @@ hs_err_pid*
 
 */sites-enabled/
 */certificates/
-*/ssl/
+*/ssl/*
+*.crt
+*.key
 
 *.SAVE
 *.tmp

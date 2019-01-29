@@ -484,16 +484,39 @@ instanceName=`echo $(basename ${imageTag})|tr '[:upper:]' '[:lower:]'|tr "/: " "
 ################################################
 ##### ---- Product Specific Parameters ---- ####
 ################################################
-#MYSQL_DATABASE=${MYSQL_DATABASE:-myDB}
-#MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD:-password}
-#MYSQL_USER=${MYSQL_USER:-user1}
-#MYSQL_PASSWORD=${MYSQL_PASSWORD:-password}
+
 #### ---- Generate Env. Variables ----
 echo ${ENV_VARS}
 
 echo "---------------------------------------------"
 echo "---- Starting a Container for ${imageTag}"
 echo "---------------------------------------------"
+
+#################################################
+##### ---- Product Specific Preparation ---- ####
+#################################################
+function generateOpensslCertificate() {
+    DAYS=365
+    OUT_DIR=${3:-$PWD/etc/nginx/ssl}
+    mkdir -p ${OUT_DIR}
+
+    MY_IP=`ip route get 1|awk '{print$NF;exit;}'`
+
+    COMMON_NAME=${1:-${MY_IP}}
+    OUT_BASENAME=${2:-nginx}
+    
+    ## Command line without Prompts
+    # openssl req -x509 -nodes -newkey rsa:2048 -days 365 -keyout ./etc/nginx/ssl/nginx.key -out ./etc/nginx/ssl/nginx.crt -subj /C=US/ST=State/L=Locality/O=Openkbs.org/OU=ai/CN=192.168.0.160
+    openssl req -x509 -nodes -newkey rsa:2048 -days ${DAYS} -keyout ${OUT_DIR}/${OUT_BASENAME}.key -out ${OUT_DIR}/${OUT_BASENAME}.crt -subj "/C=US/ST=State/L=Locality/O=Openkbs.org/OU=ai/CN=${COMMON_NAME}"
+
+    ## -- Prevent Public access of Key --
+    sudo chmod 0500 ${OUT_DIR}/${OUT_BASENAME}.key
+    sudo chmod 0555 ${OUT_DIR}/${OUT_BASENAME}.crt
+
+    echo "................... Generated ${OUT_BASENAME}.crt ........................."
+    openssl x509 -in ${OUT_DIR}/${OUT_BASENAME}.crt -text -noout
+}
+generateOpensslCertificate ${MY_IP} 
 
 cleanup
 
