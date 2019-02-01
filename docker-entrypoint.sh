@@ -31,7 +31,7 @@ sudo chown -R ${USER}:${USER} /var/lib/nginx /var/log/nginx /etc/nginx
 
 export NON_ROOT_USER=${USER-nginx}
 
-#### ------------------------------------------------------------------------
+#### -----------------------------------------------------------------------
 #### 2.A) As Root User -- Choose this or 2.B --####
 #### ---- Use this when running Root user ---- ####
 #exec "$@"
@@ -41,7 +41,7 @@ export NON_ROOT_USER=${USER-nginx}
 #### ---- Use this when running Non-Root user ---- ####
 #### ---- Use gosu (or su-exec) to drop to a non-root user
 #exec gosu ${NON_ROOT_USER} "$@"
-#### ------------------------------------------------------------------------
+#### -----------------------------------------------------------------------
 
 
 tail -f /dev/null
