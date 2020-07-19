@@ -4,7 +4,7 @@ set -e
 
 printenv
 
-/bin/bash -c "${HOME}/create-ssl-certificate-nginx.sh"
+/bin/bash -c "echo 'y' | ${HOME}/create-ssl-certificate-nginx.sh"
 
 
 tail -f /dev/null

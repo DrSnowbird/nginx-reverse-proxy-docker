@@ -7,8 +7,10 @@ services:
       dockerfile: Dockerfile
     container_name: nginx-reverse-proxy-docker
     environment:
+      - USER_ID=${USER_ID:-1000}
+      - GROUP_ID=${GROUP_ID:-1000}
     env_file:
-      - ./docker.env
+      - .env
     ports: # 8443 25901 26901 28080
       - 8443:8443   #  Proxy access 8443/26901 -> 6901
       - 25901:25901 #  Proxy access 25901 -> 5901
@@ -28,7 +30,7 @@ services:
       - USER_ID=${USER_ID:-1000}
       - GROUP_ID=${GROUP_ID:-1000}
     #env_file:
-    #  - ./.env
+    #  - .env
     ports: 
       - 5901:5901
       - 6901:6901 #  Proxy access 8443/26901 -> 6901
@@ -46,8 +48,8 @@ services:
     environment:
       - USER_ID=${USER_ID:-1000}
       - GROUP_ID=${GROUP_ID:-1000}
-    env_file:
-      - ./docker.env
+    #env_file:
+    #  - .env.
     ports: # Proxy access 28080 -> 18080 -> 8080
       - 18080:8080
     volumes:
