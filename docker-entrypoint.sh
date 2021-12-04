@@ -2,7 +2,7 @@
 
 set -e
 
-printenv
+whoami
 
 env
 
@@ -19,8 +19,8 @@ fi
 #### 1.) Setup needed stuffs, e.g., init db etc. ....
 #### (do something here for preparation)
 #### ------------------------------------------------------------------------
-echo "Add user nginx ..."
-/bin/bash -c "/scripts/add-user-sudo.sh ${USER:-nginx}"
+#echo "Add user nginx ..."
+#/bin/bash -c "/scripts/add-user-sudo.sh ${USER:-nginx}"
 
 echo "Preparing Certificates ..."
 echo "y" | /bin/bash -c "/scripts/create-ssl-certificate-default.sh"

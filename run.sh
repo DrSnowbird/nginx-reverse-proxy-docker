@@ -1,6 +1,6 @@
 #!/bin/bash
 
-set +x
+set +e
 
 MY_DIR=$(dirname "$(readlink -f "$0")")
 
@@ -25,15 +25,142 @@ fi
 ## ------------------------------------------------------------------------
 BUILD_TYPE=0
 
+###################################################
+#### ---- Parse Command Line Arguments:  ---- #####
+###################################################
+IS_TO_RUN_CPU=0
+IS_TO_RUN_GPU=1
+
+
+RESTART_OPTION_VALUES=" no on-failure unless-stopped always "
+RESTART_OPTION=${RESTART_OPTION:-no}
+
 ## ------------------------------------------------------------------------
-## Valid "RUN_TYPE" values: 
-##    0: (default) Interactive Container -
+## "RUN_OPTION" values: 
+##    "-it" : (default) Interactive Container -
 ##       ==> Best for Debugging Use
-##    1: Detach Container / Non-Interactive 
+##    "-d" : Detach Container / Non-Interactive 
 ##       ==> Usually, when not in debugging mode anymore, then use 1 as choice.
 ##       ==> Or, your frequent needs of the container for DEV environment Use.
 ## ------------------------------------------------------------------------
-RUN_TYPE=0
+RUN_OPTION=${RUN_OPTION:-" -it "}
+
+PARAMS=""
+while (( "$#" )); do
+  case "$1" in
+    -c|--cpu)
+      IS_TO_RUN_CPU=1
+      IS_TO_RUN_GPU=0
+      GPU_OPTION=
+      shift
+      ;;
+    -g|--gpu)
+      IS_TO_RUN_CPU=0
+      IS_TO_RUN_GPU=1
+      GPU_OPTION=" --gpus all "
+      shift
+      ;;
+    -d|--detach)
+      RUN_OPTION=" -d "
+      shift
+      ;;
+    -it)
+      RUN_OPTION=" -it "
+      shift
+      ;;
+    -t|--imageTag)
+      imageTag=$2
+      shift 2
+      ;;
+    -r|--restart)
+      ## Valid "RESTART_OPTION" values:
+      ##  { no, on-failure, unless-stopped, always }
+      if [[ "${RESTART_OPTION_VALUES}" =~ .*" $2 ".* ]]; then
+          RESTART_OPTION=$2
+          shift 2
+      else
+          echo "--- INFO: -r|--restart options: { no, on-failure, unless-stopped, always }"
+          echo "--- default to 'always' "
+          RESTART_OPTION=unless-stopped
+      fi
+      ;;
+    -*|--*=) # unsupported flags
+      echo "Error: Unsupported flag $1" >&2
+      exit 1
+      ;;
+    *) # preserve positional arguments
+      PARAMS="$PARAMS $1"
+      shift
+      ;;
+  esac
+done
+# set positional arguments in their proper place
+eval set -- "$PARAMS"
+
+echo "-c (IS_TO_RUN_CPU): $IS_TO_RUN_CPU"
+echo "-g (IS_TO_RUN_GPU): $IS_TO_RUN_GPU"
+
+echo ">>> RUN_OPTION: ${RUN_OPTION}"
+echo ">>>> imageTag=${imageTag}"
+
+
+echo "remiaing args:"
+echo $@
+
+## ------------------------------------------------------------------------
+## -- Container 'hostname' use: 
+## -- Default= 1 (use HOST_IP)
+## -- 1: HOST_IP
+## -- 2: HOST_NAME
+## ------------------------------------------------------------------------
+HOST_USE_IP_OR_NAME=${HOST_USE_IP_OR_NAME:-1}
+
+########################################
+#### ---- NVIDIA GPU Checking: ---- ####
+########################################
+## ------------------------------------------------------------------------
+## Run with GPU or not
+##    0: (default) Not using host's USER / GROUP ID
+##    1: Yes, using host's USER / GROUP ID for Container running.
+## ------------------------------------------------------------------------ 
+
+NVIDIA_DOCKER_AVAILABLE=0
+function check_NVIDIA() {
+    NVIDIA_PCI=`lspci | grep VGA | grep -i NVIDIA`
+    if [ "$NVIDIA_PCI" == "" ]; then
+        echo "---- No Nvidia PCI found! No Nvidia/GPU physical card(s) available! Use CPU only!"
+        GPU_OPTION=
+    else
+        which nvidia-smi
+        if [ $? -ne 0 ]; then
+            echo "---- No nvidia-smi command! No Nvidia/GPU driver setup! Use CPU only!"
+            GPU_OPTION=
+        else
+            NVIDIA_SMI=`nvidia-smi | grep -i NVIDIA | grep -i CUDA`
+            if [ "$NVIDIA_SMI" == "" ]; then
+                echo "---- No nvidia-smi command not function correctly. Use CPU only!"
+                GPU_OPTION=
+            else
+                echo ">>>> Found Nvidia GPU: Use all GPU(s)!"
+                echo "${NVIDIA_SMI}"
+                GPU_OPTION=" --gpus all "
+            fi
+            if [ ${IS_TO_RUN_CPU} -gt 0 ]; then
+                GPU_OPTION=
+            fi
+        fi
+    fi
+}
+check_NVIDIA
+#### ---- NVIDIA Docker run recommendations: ----
+# NOTE: The SHMEM allocation limit is set to the default of 64MB.  This may be
+#   insufficient for PyTorch.  NVIDIA recommends the use of the following flags:
+#   docker run --gpus all --ipc=host --ulimit memlock=-1 --ulimit stack=67108864 ...
+# -ipc=host --ulimit memlock=-1 --ulimit stack=67108864
+GPU_OPTION="${GPU_OPTION} --ulimit memlock=-1 --ulimit stack=67108864 "
+echo "GPU_OPTION= ${GPU_OPTION}"
+
+echo "$@"
 
 ## ------------------------------------------------------------------------
 ## Change to one (1) if run.sh needs to use host's user/group to run the Container
@@ -44,18 +171,23 @@ RUN_TYPE=0
 USER_VARS_NEEDED=0
 
 ## ------------------------------------------------------------------------
-## Valid "RESTART_OPTION" values:
-##  { no, on-failure, unless-stopped, always }
-## ------------------------------------------------------------------------
-RESTART_OPTION=no
-#RESTART_OPTION=unless-stopped
-
-## ------------------------------------------------------------------------
 ## More optional values:
 ##   Add any additional options here
 ## ------------------------------------------------------------------------
 #MORE_OPTIONS="--privileged=true"
 MORE_OPTIONS=""
+
+## -- IPC Host, Shm
+#MISC_OPTIONS="--ipc=host --shm-size 4g"
+MISC_OPTIONS="--ipc=host "
+
+## ------------------------------------------------------------------------
+## Multi-media optional values:
+##   Add any additional options here
+## ------------------------------------------------------------------------
+#MEDIA_OPTIONS=" --device /dev/snd --device /dev/dri  --device /dev/video0  --group-add audio  --group-add video "
+#MEDIA_OPTIONS=" --group-add audio  --group-add video --device /dev/snd --device /dev/dri  "
+MEDIA_OPTIONS=
 
 ###############################################################################
 ###############################################################################
@@ -76,46 +208,6 @@ if [ "${RESTART_OPTION}" != "no" ]; then
     REMOVE_OPTION=""
 fi
 
-########################################
-#### ---- Usage for BUILD_TYPE ---- ####
-########################################
-function buildTypeUsage() {
-    echo "## ------------------------------------------------------------------------"
-    echo "## Valid BUILD_TYPE values: "
-    echo "##    0: (default) has neither X11 nor VNC/noVNC container build image type"
-    echo "##    1: X11/Desktip container build image type"
-    echo "##    2: VNC/noVNC container build image type"
-    echo "## ------------------------------------------------------------------------"
-}
-
-if [ "${BUILD_TYPE}" -lt 0 ] || [ "${BUILD_TYPE}" -gt 2 ]; then
-    buildTypeUsage
-    exit 1
-fi
-
-########################################
-#### ---- Validate RUN_TYPE    ---- ####
-########################################
- 
-RUN_OPTION=${RUN_OPTION:-" -it "}
-function validateRunType() {
-    case "${RUN_TYPE}" in
-        0 )
-            RUN_OPTION=" -it "
-            ;;
-        1 )
-            RUN_OPTION=" -d "
-            ;;
-        * )
-            echo "**** ERROR: Incorrect RUN_TYPE: ${RUN_TYPE} is used! Abort ****"
-            exit 1
-            ;;
-    esac
-}
-validateRunType
-echo "RUN_TYPE=${RUN_TYPE}"
-echo "RUN_OPTION=${RUN_OPTION}"
-echo "RESTART_OPTION=${RESTART_OPTION}"
 echo "REMOVE_OPTION=${REMOVE_OPTION}"
 
 ###########################################################################
@@ -123,7 +215,7 @@ echo "REMOVE_OPTION=${REMOVE_OPTION}"
 ###########################################################################
 
 ## -- (this script will include ./.env only if "./docker-run.env" not found
-DOCKER_ENV_FILE="./docker-run.env"
+DOCKER_ENV_FILE="./.env"
 
 ###########################################################################
 #### (Optional - to filter Environmental Variables for Running Docker)
@@ -137,11 +229,44 @@ ORGANIZATION=openkbs
 baseDataFolder="$HOME/data-docker"
 
 ###################################################
+#### ---- Detect Host OS Type and minor Tweek: ----
+###################################################
+###################################################
+#### **** Container HOST information ****
+###################################################
+SED_MAC_FIX="''"
+CP_OPTION="--backup=numbered"
+HOST_IP=127.0.0.1
+HOST_NAME=localhost
+function get_HOST_IP() {
+    if [[ "$OSTYPE" == "linux-gnu" ]]; then
+        # Linux ...
+        HOST_NAME=`hostname -f`
+        HOST_IP=`ip route get 1|grep via | awk '{print $7}'`
+        SED_MAC_FIX=
+        echo -e ">>>> HOST_IP: ${HOST_IP}"
+    elif [[ "$OSTYPE" == "darwin"* ]]; then
+        # Mac OSX
+        HOST_NAME=`hostname -f`
+        HOST_IP=`ifconfig | grep "inet " | grep -Fv 127.0.0.1 | grep -Fv 192.168 | awk '{print $2}'`
+        CP_OPTION=
+    else
+        HOST_NAME=`hostname -f`
+        echo "**** Unknown/unsupported HOST OS type: $OSTYPE"
+        echo ">>>> Use defaults: HOST_IP=$HOST_IP ; HOST_NAME=$HOST_NAME"
+    fi
+    echo ">>> HOST_IP=${HOST_IP}"
+    echo ">>> HOST_NAME=${HOST_NAME}"
+}
+get_HOST_IP
+HOST_IP=${HOST_IP:-127.0.0.1}
+HOST_NAME=${HOST_NAME:-localhost}
+
+###################################################
 #### **** Container package information ****
 ###################################################
-MY_IP=`ip route get 1|awk '{print$NF;exit;}'`
 DOCKER_IMAGE_REPO=`echo $(basename $PWD)|tr '[:upper:]' '[:lower:]'|tr "/: " "_" `
-imageTag="${ORGANIZATION}/${DOCKER_IMAGE_REPO}"
+imageTag=${imageTag:-"${ORGANIZATION}/${DOCKER_IMAGE_REPO}"}
 #PACKAGE=`echo ${imageTag##*/}|tr "/\-: " "_"`
 PACKAGE="${imageTag##*/}"
 
@@ -239,6 +364,32 @@ function debug() {
     fi
 }
 
+function cutomizedVolume() {
+    DATA_VOLUME=$1 
+    if [ "`echo $DATA_VOLUME|grep 'volume-'`" != "" ]; then
+        docker_volume=`echo $DATA_VOLUME | cut -d'-' -f2 | cut -d':' -f1`
+        dest_volume=`echo $DATA_VOLUME | cut -d'-' -f2 | cut -d':' -f2`
+        source_volume=$(basename $imageTag)_${docker_volume}
+        sudo docker volume create ${source_volume}
+        
+        VOLUME_MAP="-v ${source_volume}:${dest_volume} ${VOLUME_MAP}"
+    else
+        echo "---- ${DATA_VOLUME} already is defined! Hence, ignore setup ${DATA_VOLUME} ..."
+        echo "---> VOLUME_MAP=${VOLUME_MAP}"
+    fi
+}
+
+function checkHostVolumePath() {
+    _left=$1
+    mkdir -p ${_left}
+    sudo chown -R $USER:$USER ${_left}
+    if [ -s ${_left} ]; then 
+        ls -al ${_left}
+    else 
+        echo "*** ERROR: ${_left}: Not existing!"
+    fi
+}
+
 function generateVolumeMapping() {
     if [ "$VOLUMES_LIST" == "" ]; then
         ## -- If locally defined in this file, then respect that first.
@@ -246,47 +397,75 @@ function generateVolumeMapping() {
         VOLUMES_LIST=`cat ${DOCKER_ENV_FILE}|grep "^#VOLUMES_LIST= *"|sed "s/[#\"]//g"|cut -d'=' -f2-`
     fi
     for vol in $VOLUMES_LIST; do
-        debug "$vol"
+        echo
+        echo ">>>>>>>>> $vol"
         hasColon=`echo $vol|grep ":"`
         ## -- allowing change local volume directories --
         if [ "$hasColon" != "" ]; then
-            left=`echo $vol|cut -d':' -f1`
-            right=`echo $vol|cut -d':' -f2`
-            leftHasDot=`echo $left|grep "\./"`
-            if [ "$leftHasDot" != "" ]; then
-                ## has "./data" on the left
-                if [[ ${right} == "/"* ]]; then
-                    ## -- pattern like: "./data:/containerPath/data"
-                    debug "-- pattern like ./data:/data --"
-                    VOLUME_MAP="${VOLUME_MAP} -v `pwd`/${left}:${right}"
-                else
-                    ## -- pattern like: "./data:data"
-                    debug "-- pattern like ./data:data --"
-                    VOLUME_MAP="${VOLUME_MAP} -v `pwd`/${left}:${DOCKER_VOLUME_DIR}/${right}"
-                fi
-                mkdir -p `pwd`/${left}
-                if [ $DEBUG -gt 0 ]; then ls -al `pwd`/${left}; fi
+            if [ "`echo $vol|grep 'volume-'`" != "" ]; then
+                cutomizedVolume $vol
             else
-                ## No "./data" on the left
-                if [[ ${right} == "/"* ]]; then
-                    ## -- pattern like: "data:/containerPath/data"
-                    debug "-- pattern like ./data:/data --"
-                    VOLUME_MAP="${VOLUME_MAP} -v ${LOCAL_VOLUME_DIR}/${left}:${right}"
+                echo "************* hasColon=$hasColon"
+                left=`echo $vol|cut -d':' -f1`
+                right=`echo $vol|cut -d':' -f2`
+                leftHasDot=`echo $left|grep "^\./"`
+                if [ "$leftHasDot" != "" ]; then
+                    ## has "./data" on the left
+                    debug "******** A. Left HAS Dot pattern: leftHasDot=$leftHasDot"
+                    if [[ ${right} == "/"* ]]; then
+                        ## -- pattern like: "./data:/containerPath/data"
+                        echo "******* A-1 -- pattern like ./data:/data --"
+                        VOLUME_MAP="${VOLUME_MAP} -v `pwd`/${left#./}:${right}"
+                    else
+                        ## -- pattern like: "./data:data"
+                        echo "******* A-2 -- pattern like ./data:data --"
+                        VOLUME_MAP="${VOLUME_MAP} -v `pwd`/${left#./}:${DOCKER_VOLUME_DIR}/${right}"
+                    fi
+                    checkHostVolumePath "`pwd`/${left}"
                 else
-                    ## -- pattern like: "data:data"
-                    debug "-- pattern like data:data --"
-                    VOLUME_MAP="${VOLUME_MAP} -v ${LOCAL_VOLUME_DIR}/${left}:${DOCKER_VOLUME_DIR}/${right}"
+                    ## No "./data" on the left
+                    debug "******** B. Left  No ./data on the left: leftHasDot=$leftHasDot"
+                    leftHasAbsPath=`echo $left|grep "^/.*"`
+                    if [ "$leftHasAbsPath" != "" ]; then
+                        debug "******* B-1 ## Has pattern like /data on the left "
+                        if [[ ${right} == "/"* ]]; then
+                            ## -- pattern like: "/data:/containerPath/data"
+                            echo "****** B-1-a pattern like /data:/containerPath/data --"
+                            VOLUME_MAP="${VOLUME_MAP} -v ${left}:${right}"
+                        else
+                            ## -- pattern like: "/data:data"
+                            echo "----- B-1-b pattern like /data:data --"
+                            VOLUME_MAP="${VOLUME_MAP} -v ${left}:${DOCKER_VOLUME_DIR}/${right}"
+                        fi
+                        checkHostVolumePath "${left}"
+                    else
+                        debug "******* B-2 ## No pattern like /data on the left"
+                        rightHasAbsPath=`echo $right|grep "^/.*"`
+                        debug ">>>>>>>>>>>>> rightHasAbsPath=$rightHasAbsPath"
+                        if [[ ${right} == "/"* ]]; then
+                            echo "****** B-2-a pattern like: data:/containerPath/data"
+                            debug "-- pattern like ./data:/data --"
+                            VOLUME_MAP="${VOLUME_MAP} -v ${LOCAL_VOLUME_DIR}/${left}:${right}"
+                        else
+                            debug "****** B-2-b ## -- pattern like: data:data"
+                            VOLUME_MAP="${VOLUME_MAP} -v ${LOCAL_VOLUME_DIR}/${left}:${DOCKER_VOLUME_DIR}/${right}"
+                        fi
+                        checkHostVolumePath "${left}"
+                    fi
+                    mkdir -p ${LOCAL_VOLUME_DIR}/${left}
+                    if [ $DEBUG -gt 0 ]; then ls -al ${LOCAL_VOLUME_DIR}/${left}; fi
                 fi
-                mkdir -p ${LOCAL_VOLUME_DIR}/${left}
-                if [ $DEBUG -gt 0 ]; then ls -al ${LOCAL_VOLUME_DIR}/${left}; fi
             fi
         else
             ## -- pattern like: "data"
             debug "-- default sub-directory (without prefix absolute path) --"
             VOLUME_MAP="${VOLUME_MAP} -v ${LOCAL_VOLUME_DIR}/$vol:${DOCKER_VOLUME_DIR}/$vol"
-            mkdir -p ${LOCAL_VOLUME_DIR}/$vol
+            if [ ! -s ${LOCAL_VOLUME_DIR}/$vol ]; then
+                mkdir -p ${LOCAL_VOLUME_DIR}/$vol
+            fi
             if [ $DEBUG -gt 0 ]; then ls -al ${LOCAL_VOLUME_DIR}/$vol; fi
-        fi
+        fi       
+        echo ">>> expanded VOLUME_MAP: ${VOLUME_MAP}"
     done
 }
 #### ---- Generate Volumes Mapping ----
@@ -322,7 +501,21 @@ echo "PORT_MAP=${PORT_MAP}"
 ###################################################
 #### ---- Generate Environment Variables       ----
 ###################################################
-ENV_VARS=""
+ENV_VARS=${ENV_VARS}
+
+function generateEnvVars_v2() {
+    while read line; do
+        echo "Line=$line"
+        key=${line%=*}
+        value=${line#*=}
+        key=$(eval echo $value)
+        ENV_VARS="${ENV_VARS} -e ${line%=*}=$(eval echo $value)"
+    done < <(grep -E "^[[:blank:]]*$1.+[[:blank:]]*=[[:blank:]]*.+[[:blank:]]*" ${DOCKER_ENV_FILE} | grep -v "^#")
+    echo "ENV_VARS=$ENV_VARS"
+}
+generateEnvVars_v2
+echo ">> ENV_VARS=$ENV_VARS"
+
 function generateEnvVars() {
     if [ "${1}" != "" ]; then
         ## -- product key patterns, e.g., "^MYSQL_*"
@@ -333,30 +526,43 @@ function generateEnvVars() {
         #productEnvVars=`grep -E "^[[:blank:]]*$1[a-zA-Z0-9_]+[[:blank:]]*=[[:blank:]]*[a-zA-Z0-9_]+[[:blank:]]*" ${DOCKER_ENV_FILE}`
         productEnvVars=`grep -E "^[[:blank:]]*$1.+[[:blank:]]*=[[:blank:]]*.+[[:blank:]]*" ${DOCKER_ENV_FILE} | grep -v "^#"`
     fi
+    for vars in 
+        do
+        echo "Line=$line"
+        key=${line%=*}
+        value=${line#*=}
+        #key=$(eval echo $value)
+        #ENV_VARS="${ENV_VARS} -e ${line%=*}=$(eval echo $value)"
+        ENV_VARS="${ENV_VARS} -e ${line}"
+    done
     ENV_VARS_STRING=""
     for vars in ${productEnvVars// /}; do
         debug "Entry => $vars"
+        key=${vars%=*}
+        value=${vars#*=}
         if [ "$1" != "" ]; then
             matched=`echo $vars|grep -E "${1}"`
             if [ ! "$matched" == "" ]; then
-                ENV_VARS_STRING="${ENV_VARS_STRING} ${vars}"
+                ENV_VARS="${ENV_VARS} -e $key=$(eval echo $value)"
+                #ENV_VARS="${ENV_VARS} ${vars}"
             fi
         else
-            ENV_VARS_STRING="${ENV_VARS_STRING} ${vars}"
+            #ENV_VARS="${ENV_VARS} ${vars}"
+            ENV_VARS="${ENV_VARS} -e $key=$(eval echo $value)"
         fi
     done
-    ## IFS default is "space tab newline" already
-    #IFS=',; ' read -r -a ENV_VARS_ARRAY <<< "${ENV_VARS_STRING}"
-    read -r -a ENV_VARS_ARRAY <<< "${ENV_VARS_STRING}"
-    # To iterate over the elements:
-    for element in "${ENV_VARS_ARRAY[@]}"
-    do
-        ENV_VARS="${ENV_VARS} -e ${element}"
-    done
-    if [ $DEBUG -gt 0 ]; then echo "ENV_VARS_ARRAY=${ENV_VARS_ARRAY[@]}"; fi
+#    ## IFS default is "space tab newline" already
+#    #IFS=',; ' read -r -a ENV_VARS_ARRAY <<< "${ENV_VARS_STRING}"
+#    read -r -a ENV_VARS_ARRAY <<< "${ENV_VARS_STRING}"
+#    # To iterate over the elements:
+#    for element in "${ENV_VARS_ARRAY[@]}"
+#    do
+#        ENV_VARS="${ENV_VARS} -e ${element}"
+#    done
+#    if [ $DEBUG -gt 0 ]; then echo "ENV_VARS_ARRAY=${ENV_VARS_ARRAY[@]}"; fi
 }
-generateEnvVars
-echo "ENV_VARS=${ENV_VARS}"
+#generateEnvVars
+#echo "ENV_VARS=${ENV_VARS}"
 
 ###################################################
 #### ---- Setup Docker Build Proxy ----
@@ -388,13 +594,13 @@ function generateProxyEnv() {
         PROXY_PARAM="${PROXY_PARAM} -e NO_PROXY=\"${NO_PROXY}\""
     fi
     if [ "${http_proxy}" != "" ]; then
-        PROXY_PARAM="${PROXY_PARAM} -e HTTP_PROXY=${http_proxy}"
+        PROXY_PARAM="${PROXY_PARAM} -e http_proxy=${http_proxy}"
     fi
     if [ "${https_proxy}" != "" ]; then
-        PROXY_PARAM="${PROXY_PARAM} -e HTTPS_PROXY=${https_proxy}"
+        PROXY_PARAM="${PROXY_PARAM} -e https_proxy=${https_proxy}"
     fi
     if [ "${no_proxy}" != "" ]; then
-        PROXY_PARAM="${PROXY_PARAM} -e NO_PROXY=\"${no_proxy}\""
+        PROXY_PARAM="${PROXY_PARAM} -e no_proxy=\"${no_proxy}\""
     fi
     ENV_VARS="${ENV_VARS} ${PROXY_PARAM}"
 }
@@ -423,19 +629,24 @@ echo ${privilegedString}
 #### ---- Mostly, you don't need change below ----
 ###################################################
 function cleanup() {
-    if [ ! "`docker ps -a|grep ${instanceName}`" == "" ]; then
-         docker rm -f ${instanceName}
+    containerID=`sudo docker ps -a|grep "${instanceName}" | awk '{print $1}'`
+    # if [ ! "`sudo docker ps -a|grep ${instanceName}`" == "" ]; then
+    if [ "${containerID}" != "" ]; then
+         sudo docker rm -f ${containerID}
     fi
 }
 
+###################################################
+#### ---- Display Host (Container) URL with Port ----
+###################################################
 function displayURL() {
     port=${1}
-    echo "... Go to: http://${MY_IP}:${port}"
-    #firefox http://${MY_IP}:${port} &
+    echo "... Go to: http://${HOST_IP}:${port}"
+    #firefox http://${HOST_IP}:${port} &
     if [ "`which google-chrome`" != "" ]; then
-        /usr/bin/google-chrome http://${MY_IP}:${port} &
+        /usr/bin/google-chrome http://${HOST_IP}:${port} &
     else
-        firefox http://${MY_IP}:${port} &
+        firefox http://${HOST_IP}:${port} &
     fi
 }
 
@@ -484,39 +695,16 @@ instanceName=`echo $(basename ${imageTag})|tr '[:upper:]' '[:lower:]'|tr "/: " "
 ################################################
 ##### ---- Product Specific Parameters ---- ####
 ################################################
-
+#MYSQL_DATABASE=${MYSQL_DATABASE:-myDB}
+#MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD:-password}
+#MYSQL_USER=${MYSQL_USER:-user1}
+#MYSQL_PASSWORD=${MYSQL_PASSWORD:-password}
 #### ---- Generate Env. Variables ----
 echo ${ENV_VARS}
 
 echo "---------------------------------------------"
 echo "---- Starting a Container for ${imageTag}"
 echo "---------------------------------------------"
-
-#################################################
-##### ---- Product Specific Preparation ---- ####
-#################################################
-function generateOpensslCertificate() {
-    DAYS=365
-    OUT_DIR=${3:-$PWD/etc/nginx/ssl}
-    mkdir -p ${OUT_DIR}
-
-    MY_IP=`ip route get 1|awk '{print$NF;exit;}'`
-
-    COMMON_NAME=${1:-${MY_IP}}
-    OUT_BASENAME=${2:-nginx}
-    
-    ## Command line without Prompts
-    # openssl req -x509 -nodes -newkey rsa:2048 -days 365 -keyout ./etc/nginx/ssl/nginx.key -out ./etc/nginx/ssl/nginx.crt -subj /C=US/ST=State/L=Locality/O=Openkbs.org/OU=ai/CN=192.168.0.160
-    openssl req -x509 -nodes -newkey rsa:2048 -days ${DAYS} -keyout ${OUT_DIR}/${OUT_BASENAME}.key -out ${OUT_DIR}/${OUT_BASENAME}.crt -subj "/C=US/ST=State/L=Locality/O=Openkbs.org/OU=ai/CN=${COMMON_NAME}"
-
-    ## -- Prevent Public access of Key --
-    sudo chmod 0500 ${OUT_DIR}/${OUT_BASENAME}.key
-    sudo chmod 0555 ${OUT_DIR}/${OUT_BASENAME}.crt
-
-    echo "................... Generated ${OUT_BASENAME}.crt ........................."
-    openssl x509 -in ${OUT_DIR}/${OUT_BASENAME}.crt -text -noout
-}
-generateOpensslCertificate ${MY_IP} 
 
 cleanup
 
@@ -537,41 +725,146 @@ echo "  ./build.sh : to build the container"
 echo "  ./commit.sh: to push the container image to docker hub"
 echo "--------------------------------------------------------"
 
+#################################
+## ---- Detect Media/Sound: -- ##
+#################################
+MEDIA_OPTIONS=""
+function detectMedia() {
+    devices="/dev/snd /dev/dri"
+    for device in $devices; do
+        if [ -s $device ]; then
+            # --device /dev/snd:/dev/snd
+            if [ "${MEDIA_OPTIONS}" == "" ]; then
+                MEDIA_OPTIONS=" --group-add audio --group-add video "
+            fi
+            # MEDIA_OPTIONS=" --group-add audio  --group-add video --device /dev/snd --device /dev/dri  "
+            #MEDIA_OPTIONS="${MEDIA_OPTIONS} --device $device:$device"
+            MEDIA_OPTIONS="${MEDIA_OPTIONS} --device $device"
+        fi
+    done
+    echo "MEDIA_OPTIONS= ${MEDIA_OPTION}"
+}
+detectMedia
+
+#################################
+## -_-- Setup X11 Display -_-- ##
+#################################
+X11_OPTION=
+function setupDisplayType() {
+    if [[ "$OSTYPE" == "linux-gnu" ]]; then
+        # ...
+        xhost +SI:localuser:$(id -un) 
+        xhost + 127.0.0.1
+        echo ${DISPLAY}
+    elif [[ "$OSTYPE" == "darwin"* ]]; then
+        # Mac OSX
+        # if you want to multi-media in MacOS, you need customize it here
+        MEDIA_OPTIONS=""
+        xhost + 127.0.0.1
+        export DISPLAY=host.docker.internal:0
+        echo ${DISPLAY}
+    elif [[ "$OSTYPE" == "cygwin" ]]; then
+        # POSIX compatibility layer and Linux environment emulation for Windows
+        xhost + 127.0.0.1
+        echo ${DISPLAY}
+    elif [[ "$OSTYPE" == "msys" ]]; then
+        # Lightweight shell and GNU utilities compiled for Windows (part of MinGW)
+        xhost + 127.0.0.1
+        echo ${DISPLAY}
+    elif [[ "$OSTYPE" == "freebsd"* ]]; then
+        # ...
+        xhost + 127.0.0.1
+        echo ${DISPLAY}
+    else
+        # Unknown.
+        echo "Unknown OS TYPE: $OSTYPE! Not supported!"
+        exit 9
+    fi
+    echo "DISPLAY=${DISPLAY}"
+    echo 
+}
+
+
+##################################################
+## ---- Setup Corporate Chain's Certificates -- ##
+##################################################
+CERTIFICATE_OPTIONS=
+function setupCorporateCertificates() {
+    cert_dir=`pwd`/certificates
+    if [ -d ./certificates/ ]; then
+            CERTIFICATE_OPTIONS="${CERTIFICATE_OPTIONS} -v ${cert_dir}:/certificates"
+    fi
+    echo "CERTIFICATE_OPTIONS=${CERTIFICATE_OPTIONS}"
+}
+setupCorporateCertificates
+
+
+##################################################
+## ---- Setup accessing HOST's /etc/hosts: ---- ##
+##################################################
+## **************** WARNING: *********************
+## **************** WARNING: *********************
+## **************** WARNING: *********************
+#  => this might open up more attack surface since
+#   /etc/hosts has other nodes IP/name information
+# ------------------------------------------------
+if [ ${HOST_USE_IP_OR_NAME} -eq 2 ]; then
+    HOSTS_OPTIONS="-h ${HOST_NAME} -v /etc/hosts:/etc/hosts "
+else
+    # default use HOST_IP
+    HOSTS_OPTIONS="-h ${HOST_IP} -v /etc/hosts:/etc/hosts "
+fi
+
+##################################################
+##################################################
+## ----------------- main --------------------- ##
+##################################################
+##################################################
+set -x
+echo -e ">>> (final) ENV_VARS=${ENV_VARS}"
 case "${BUILD_TYPE}" in
     0)
-        ## 0: (default) has neither X11 nor VNC/noVNC container build image type 
-        set -x 
-        docker run ${REMOVE_OPTION} ${MORE_OPTIONS} ${RUN_OPTION} \
+        #### 0: (default) has neither X11 nor VNC/noVNC container build image type
+        #### ---- for headless-based / GUI-less ---- ####
+        docker run \
             --name=${instanceName} \
             --restart=${RESTART_OPTION} \
+            ${GPU_OPTION} \
+            ${REMOVE_OPTION} ${RUN_OPTION} ${HOSTS_OPTIONS} ${MISC_OPTIONS} ${MORE_OPTIONS} ${CERTIFICATE_OPTIONS} \
             ${privilegedString} \
             ${USER_VARS} \
             ${ENV_VARS} \
             ${VOLUME_MAP} \
             ${PORT_MAP} \
-            ${imageTag} $*
+            ${imageTag} \
+            $@
         ;;
     1)
-        ## 1: X11/Desktip container build image type
-        #### ---- for X11-based ---- ####
+        #### 1: X11/Desktip container build image type
+        #### ---- for X11-based ---- #### 
+        setupDisplayType
         echo ${DISPLAY}
-        xhost +SI:localuser:$(id -un) 
-        set -x 
-        DISPLAY=${MY_IP}:0 \
-        docker run ${REMOVE_OPTION} ${MORE_OPTIONS} ${RUN_OPTION} \
+        #X11_OPTION="-e DISPLAY=$DISPLAY -v $HOME/.chrome:/data -v /dev/shm:/dev/shm -v /tmp/.X11-unix:/tmp/.X11-unix -e DBUS_SYSTEM_BUS_ADDRESS=unix:path=/host/run/dbus/system_bus_socket"
+        #X11_OPTION="-e DISPLAY=$DISPLAY -v /dev/shm:/dev/shm -v /tmp/.X11-unix:/tmp/.X11-unix -e DBUS_SYSTEM_BUS_ADDRESS=unix:path=/var/run/dbus/system_bus_socket"
+        X11_OPTION="-e DISPLAY=$DISPLAY -v /dev/shm:/dev/shm -v /tmp/.X11-unix:/tmp/.X11-unix"
+        echo "X11_OPTION=${X11_OPTION}"
+        docker run \
             --name=${instanceName} \
             --restart=${RESTART_OPTION} \
-            -e DISPLAY=$DISPLAY \
-            -v /tmp/.X11-unix:/tmp/.X11-unix \
+            ${GPU_OPTION} \
+            ${MEDIA_OPTIONS} \
+            ${REMOVE_OPTION} ${RUN_OPTION} ${HOSTS_OPTIONS} ${MISC_OPTIONS} ${MORE_OPTIONS} ${CERTIFICATE_OPTIONS} \
+            ${X11_OPTION} \
             ${privilegedString} \
             ${USER_VARS} \
             ${ENV_VARS} \
             ${VOLUME_MAP} \
             ${PORT_MAP} \
-            ${imageTag} $*
+            ${imageTag} \
+            $@
         ;;
     2)
-        ## 2: VNC/noVNC container build image type
+        #### 2: VNC/noVNC container build image type
         #### ----------------------------------- ####
         #### -- VNC_RESOLUTION setup default --- ####
         #### ----------------------------------- ####
@@ -580,21 +873,19 @@ case "${BUILD_TYPE}" in
             VNC_RESOLUTION=1920x1080
             ENV_VARS="${ENV_VARS} -e VNC_RESOLUTION=${VNC_RESOLUTION}" 
         fi
-        set -x 
-        docker run ${REMOVE_OPTION} ${MORE_OPTIONS} ${RUN_OPTION} \
+        docker run \
             --name=${instanceName} \
             --restart=${RESTART_OPTION} \
+            ${REMOVE_OPTION} ${RUN_OPTION} ${HOSTS_OPTIONS} ${MISC_OPTIONS} ${MORE_OPTIONS} ${CERTIFICATE_OPTIONS} \
             ${privilegedString} \
             ${USER_VARS} \
             ${ENV_VARS} \
             ${VOLUME_MAP} \
             ${PORT_MAP} \
-            ${imageTag} $*
+            ${imageTag} \
+            $@
         ;;
-     *)
-        buildTypeUsage
-        exit 1
+
 esac
 
-set +x
 

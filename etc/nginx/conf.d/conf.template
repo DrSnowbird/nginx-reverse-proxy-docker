@@ -1,0 +1,36 @@
+    upstream server_{{NAME_SERVER}} {
+        server {{BACKEND_IP}}:{{BACKEND_SERVER_PORT}} weight=5;
+        # -- Load balancing: --
+        #server 192.168.0.161:{{BACKEND_SERVER_PORT}} weight=5;
+    }
+    
+    server {  # simple reverse-proxy for {{NAME_SERVER}} file server
+        listen              {{FRONTEND_HTTP_PORT}};
+        listen              [::]:{{FRONTEND_HTTP_PORT}} default;
+        server_name         {{BACKEND_IP}};
+        access_log          /var/log/nginx/{{NAME_SERVER}}FileServer.access.log;
+        location / {
+            proxy_pass      http://server_{{NAME_SERVER}};
+            proxy_set_header    Upgrade $http_upgrade;
+            proxy_set_header    Connection "upgrade";
+            proxy_redirect  off;
+        }
+    }
+    
+        
+    # HTTPS - simple reverse-proxy for blazegraph
+    server {
+        listen                  {{FRONTEND_HTTS_PORT}} ssl;
+        listen                  [::]:{{FRONTEND_HTTS_PORT}} ssl default;
+        server_name             192.168.0.122;
+        access_log              /var/log/nginx/blazegraph.access.ssl.log;
+        ssl_certificate         /etc/nginx/ssl/nginx.crt;
+        ssl_certificate_key     /etc/nginx/ssl/nginx.key;
+
+        location / {
+            proxy_pass          http://server_{{NAME_SERVER}};
+            proxy_set_header    Upgrade $http_upgrade;
+            proxy_set_header    Connection "upgrade";
+            proxy_redirect      off;
+        }
+    }
