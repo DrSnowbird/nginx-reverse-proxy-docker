@@ -11,32 +11,89 @@ services:
       - GROUP_ID=${GROUP_ID:-1000}
     env_file:
       - .env
-    ports: # 8443 25901 26901 28080
-      - 8443:8443   #  Proxy access 8443/26901 -> 6901
-      - 25901:25901 #  Proxy access 25901 -> 5901
-      - 26901:26901 #  Proxy access 8443/26901 -> 6901
-      - 28080:28080 # Proxy access 28080 -> 18080 -> 8080
+    ports:
+      ## openkbs/jetty-fileserver 
+      ## - Proxy access [38443 / 38080] -> 18080 -> 8080
+      - 38843
+      - 38080
+      ## openkbs/blazegraph-docker 
+      ## - Proxy access [39443 / 39999] -> 9999 -> 9999
+      - 39443
+      - 39999  
+      ## openkbs/jena-fuseki-docker 
+      ## - Proxy access [33843 / 33030] -> 13030 -> 3030
+      - 33843
+      - 33030
     volumes:
       - ./etc/nginx:/etc/nginx
-
-  ## VNC/noVNC test as upstream server
-  rest-dev-vnc-docker:
-    image: openkbs/rest-dev-vnc-docker
+      
+  jena-fuseki-docker:
+    container_name: jena-fuseki-docker
+    image: openkbs/jena-fuseki-docker
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: rest-dev-vnc-docker
+    restart: always
+    env_file:
+      - ./.env
     environment:
+      # CVE Disabling JNDI functionality
+      - OG4J_FORMAT_MSG_NO_LOOKUPS=true
+      - CONTAINER_NAME=jena-fuseki-docker
       - USER_ID=${USER_ID:-1000}
       - GROUP_ID=${GROUP_ID:-1000}
-    #env_file:
-    #  - .env
-    ports: 
-      - 5901:5901
-      - 6901:6901 #  Proxy access 8443/26901 -> 6901
+      # - APP_HOME=${APP_HOME:-/home/developer/app}
+      # - APP_MAIN=${APP_MAIN:-setup.sh}
+      - DOCKER_HOST_IP=${DOCKER_HOST_IP:-127.0.0.1}
+      - DOCKER_HOST_NAME=${DOCKER_HOST_NAME:-aurora}
+
     volumes:
-      - ./workspace:/home/developer/workspace
-      - ./.eclipse:/home/developer/.eclipse
+      ## ==== Common mapping: ====
+      #- /etc/hosts:/etc/hosts
+      - /dev/shm:/dev/shm
+      #- /tmp/.X11-unix:/tmp/.X11-unix
+      - /var/run/docker.sock:/var/run/docker.sock
+      #- ./certificates:/home/developer/certificates
+      ## ==== Use $HOME/data-docker as base directory: ====
+      #- $HOME/data-docker/jena-fuseki-docker/fuseki:/home/developer/fuseki
+      #- $HOME/data-docker/jena-fuseki-docker/workspace:/home/developer/workspace
+      ## ==== Use current directory as root for mapping Volumes: ====
+      ## (You need to manually create those child directory: ./data, ./workspace, and others)
+      #- ./data:/home/developer/data
+      #- ./workspace:/home/developer/workspace
+      ## ==== App's additional mapping Volumes: ====
+      ## --- (use volume way)
+      #- jena-fuseki-datbases:/home/developer/fuseki:rw
+      ## --- (use PWD's ./databases)
+      # *****************************************************************************
+      # **** IMPORTANT: you need to manually pre-create the ./databases directory ***
+      # *****************************************************************************
+      - ./databases:/home/developer/fuseki:rw
+
+    ## -------------------------------
+    ## -- Change to your specific port
+    ## -------------------------------
+    ports:
+      - "13030:3030"
+      
+  # ## VNC/noVNC test as upstream server
+  # rest-dev-vnc-docker:
+  #   image: openkbs/rest-dev-vnc-docker
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile
+  #   container_name: rest-dev-vnc-docker
+  #   environment:
+  #     - USER_ID=${USER_ID:-1000}
+  #     - GROUP_ID=${GROUP_ID:-1000}
+  #   #env_file:
+  #   #  - .env
+  #   ports: 
+  #     - 5901:5901
+  #     - 6901:6901 #  Proxy access 8443/26901 -> 6901
+  #   volumes:
+  #     - ./workspace:/home/developer/workspace
+  #     - ./.eclipse:/home/developer/.eclipse
 
   ## Jetty file server test as upstream server
   jetty-fileserver:
