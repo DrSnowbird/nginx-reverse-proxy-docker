@@ -29,27 +29,32 @@ Here is the ./etc/nginx folder which will be used to map into the Nginx Containe
         └── nginx.key (auto generated)
 
 ```
+# Ngnix Config
+* There three examples config files in 'etc/nginx/config.d' folder:
+1. ./etc/nginx/conf.d/jetty.conf
+2. ./etc/nginx/conf.d/jena-fuseki-docker.conf
+3. ./etc/nginx/conf.d/blazegraph.conf
+
+`IMPORTANT!`, you will have to modify the server IP address or domain name. currently, it is using some random IP address. Hence, it will not work if you did not modify those server IP address.
+```
+You need to replace the above "0.0.0.0" with the actual IP address when accessing from remote machines.
+
+```
 
 # Run
 docker-compose up
 ```
-The Proxied Ports by Reverse Proxy Server are
-- rest-dev-vnc-docker:
-  
-      - 8443:8443   #  Proxy access 8443/26901 -> 6901
-      - 25901:25901 #  Proxy access 25901 -> 5901
-      - 26901:26901 #  Proxy access 8443/26901 -> 6901
-      - 28080:28080 #  Proxy access 28080 -> 18080 -> 8080
+##  PORTS_LIST="80:80 443:443"
+## -- Reverse Proxy internal setup: --
+##       # openkbs/jetty-fileserver 
+##       - Proxy access [38443 / 38080] -> 18080 -> 8080
+##       # openkbs/blazegraph-docker 
+##       - Proxy access [39443 / 39999] -> 9999 -> 9999
+##       # openkbs/jena-fuseki-docker 
+##       - Proxy access [33843 / 33030] -> 13030 -> 3030
+
+#PORTS_LIST="38843 38080  39443 39999  33843 33030"
 ```
-Use the following URLs to test:
-- rest-dev-vnc-docker
-  - https://0.0.0.0:8443/  (password: vnc_password)
-  - http://0.0.0.0:26901/  (password: vnc_password)
-- rest-dev-vnc-docker
-  - http://0.0.0.0:28080/
-
-Note you need to replace the above "0.0.0.0" with the actual IP address when accessing from remote machines.
-
 # Volumes
 
 * **/etc/nginx/sites-enabled**: Should contains nginx configurations for redirections to websites/web apps.
