@@ -2,7 +2,7 @@
 # login first (Registry: e.g., hub.docker.io, registry.localhost:5000, etc.)
 # a.)  docker login
 # or
-# b.) sudo docker login -p FpXM6Qy9vVL5kPeoefzxwA-oaYb-Wpej2iXTwV7UHYs -e unused -u unused docker-registry-default.openkbs.org
+# b.) docker login -p FpXM6Qy9vVL5kPeoefzxwA-oaYb-Wpej2iXTwV7UHYs -e unused -u unused docker-registry-default.openkbs.org
 # e.g. (using Openshift)
 #    oc process -f ./files/deployments/template.yml -v API_NAME=$(REGISTRY_IMAGE) > template.active
 #
@@ -22,8 +22,9 @@ BASE_IMAGE := $(BASE_IMAGE)
 #  cat -e -t -v Makefile
 
 # The name of the container (default is current directory name)
-#DOCKER_NAME := $(shell echo $${PWD\#\#*/})
-DOCKER_NAME := $(shell echo $${PWD\#\#*/}|tr '[:upper:]' '[:lower:]'|tr "/: " "_" )
+mkfile_path := $(abspath $(lastword $(MAKEFILE_LIST)))
+current_dir := $(notdir $(patsubst %/,%,$(dir $(mkfile_path))))
+DOCKER_NAME := $(shell echo $(current_dir)|tr '[:upper:]' '[:lower:]'|tr "/: " "_" )
 
 ORGANIZATION=$(shell echo $${ORGANIZATION:-openkbs})
 APP_VERSION=$(shell echo $${APP_VERSION:-latest})
@@ -47,6 +48,9 @@ DOCKER_IMAGE := $(ORGANIZATION)/$(DOCKER_NAME)
 #VOLUME_MAP := "-v $${PWD}/data:/home/developer/data -v $${PWD}/workspace:/home/developer/workspace"
 VOLUME_MAP := 
 
+## -- Network: -- ##
+DOCKER_NETWORK=$(shell echo $${DOCKER_NETWORK:-dev_network})
+
 # -- Local SAVE of image --
 IMAGE_EXPORT_PATH := "$${PWD}/archive"
 
@@ -55,10 +59,15 @@ RESTART_OPTION := always
 
 SHA := $(shell git describe --match=NeVeRmAtCh --always --abbrev=40 --dirty=*)
 
+TIME_START := $(shell date +%s)
+
 .PHONY: clean rmi build push pull up down run stop exec
 
-clean:
-	$(DOCKER_NAME) $(DOCKER_IMAGE):$(VERSION) 
+debug:
+	@echo "makefile_path="$(mkfile_path)
+	@echo "current_dir="$(current_dir)
+	@echo "DOCKER_NNAME="$(DOCKER_NAME) 
+	@echo "DOCKER_IMAGE:VERSION="$(DOCKER_IMAGE):$(VERSION) 
 
 default: build
 
@@ -71,10 +80,15 @@ build-time:
 	--build-arg BUILD_DATE=`date -u +"%Y-%m-%dT%H:%M:%SZ"` \
 	-t $(DOCKER_IMAGE):$(VERSION) .
 
+build-rm:
+	docker build --force-rm --no-cache \
+		-t $(DOCKER_IMAGE):$(VERSION) .
 
 build:
 	docker build \
-	-t $(DOCKER_IMAGE):$(VERSION) .
+	    -t $(DOCKER_IMAGE):$(VERSION) .
+	docker images | grep $(DOCKER_IMAGE)
+	@echo ">>> Total Dockder images Build using time in seconds: $$(($$(date +%s)-$(TIME_START))) seconds"
 
 push:
 	docker commit -m "$comment" ${containerID} ${imageTag}:$(VERSION)
@@ -96,20 +110,47 @@ pull:
 		docker pull $(REGISTRY_IMAGE):$(VERSION) ; \
 	fi
 
+network:
+	echo -e ">>> ==================== network: ======================"
+	docker network create --driver bridge ${DOCKER_NETWORK}
+	docker network ls
+
+## -- deployment mode (daemon service): -- ##
 up:
-	docker-compose up -d
+	bin/auto-config-all.sh
+	#if [ "$(USER_ID)" != "" ] && [ "$(USER_ID)" != "" ]; then \
+	#	sudo chown -R $(USER_ID):$(GROUP_ID) data workspace ; \
+	#	docker-compose up --remove-orphans -u $(USER_ID):$(GROUP_ID) -d ; \
+	#else \
+	#	docker-compose up --remove-orphans -d ; \
+	#fi
+	docker-compose up --remove-orphans -d
+	docker ps | grep $(DOCKER_IMAGE)
+	@echo ">>> Total Dockder images Build using time in seconds: $$(($$(date +%s)-$(TIME_START))) seconds"
 
 down:
 	docker-compose down
+	#docker ps | grep $(DOCKER_IMAGE)
+	@echo ">>> Total Dockder images Build using time in seconds: $$(($$(date +%s)-$(TIME_START))) seconds"
 
+down-rm:
+	docker-compose down -v --rmi all --remove-orphans
+	#docker ps | grep $(DOCKER_IMAGE)
+	@echo ">>> Total Dockder images Build using time in seconds: $$(($$(date +%s)-$(TIME_START))) seconds"
+
+## -- dev/debug -- ##
 run:
-	docker run --name=$(DOCKER_NAME) --restart=$(RESTART_OPTION) $(VOLUME_MAP) $(DOCKER_IMAGE):$(VERSION)
+	@if [ ! -s .env ]; then \
+		bin/auto-config-all.sh; \
+	fi
+	./run.sh
+	#docker run --name=$(DOCKER_NAME) --restart=$(RESTART_OPTION) $(VOLUME_MAP) $(DOCKER_IMAGE):$(VERSION)
 
 stop:
 	docker stop --name=$(DOCKER_NAME)
 
 status:
-	docker ps
+	docker ps | grep $(DOCKER_NAME)
 
 rmi:
 	docker rmi $$(docker images -f dangling=true -q)
