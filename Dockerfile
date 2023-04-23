@@ -1,5 +1,5 @@
-#ARG BASE_IMAGE=${BASE_IMAGE:-ubuntu:20}
-ARG BASE_IMAGE=${BASE_IMAGE:-debian:stretch}
+ARG BASE_IMAGE=${BASE_IMAGE:-ubuntu}
+#ARG BASE_IMAGE=${BASE_IMAGE:-debian:stretch}
 FROM ${BASE_IMAGE}
 
 ##############################################

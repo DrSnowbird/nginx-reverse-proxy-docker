@@ -14,6 +14,7 @@ All you need to do is to provide ./etc/nginx configuration folder and launch thi
 Here is the ./etc/nginx folder which will be used to map into the Nginx Container when using "./run.sh" or "docker-compose up -d":
 
 ```
+(note the following "*.conf" files are just for demo purpose - you should not use them in your system!)
 ./etc
 └── nginx
     ├── certificates
@@ -37,13 +38,15 @@ Here is the ./etc/nginx folder which will be used to map into the Nginx Containe
 
 `IMPORTANT!`, you will have to modify the server IP address or domain name. currently, it is using some random IP address. Hence, it will not work if you did not modify those server IP address.
 ```
-You need to replace the above "0.0.0.0" with the actual IP address when accessing from remote machines.
+You need to replace the "random IP address" for each '*.conf' file with the actual IP address when accessing from remote machines.
 
 ```
 
 # Run
-docker-compose up
+* Note that the 'docker-compose.yml' is for demo only! You should modify to your specific configuration!
 ```
+docker-compmose up
+
 ##  PORTS_LIST="80:80 443:443"
 ## -- Reverse Proxy internal setup: --
 ##       # openkbs/jetty-fileserver 
@@ -55,6 +58,7 @@ docker-compose up
 
 #PORTS_LIST="38843 38080  39443 39999  33843 33030"
 ```
+
 # Volumes
 
 * **/etc/nginx/sites-enabled**: Should contains nginx configurations for redirections to websites/web apps.

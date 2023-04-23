@@ -117,7 +117,7 @@ network:
 
 ## -- deployment mode (daemon service): -- ##
 up:
-	bin/auto-config-all.sh
+	#bin/auto-config-all.sh
 	#if [ "$(USER_ID)" != "" ] && [ "$(USER_ID)" != "" ]; then \
 	#	sudo chown -R $(USER_ID):$(GROUP_ID) data workspace ; \
 	#	docker-compose up --remove-orphans -u $(USER_ID):$(GROUP_ID) -d ; \
@@ -140,9 +140,9 @@ down-rm:
 
 ## -- dev/debug -- ##
 run:
-	@if [ ! -s .env ]; then \
-		bin/auto-config-all.sh; \
-	fi
+	#@if [ ! -s .env ]; then \
+	#	bin/auto-config-all.sh; \
+	#fi
 	./run.sh
 	#docker run --name=$(DOCKER_NAME) --restart=$(RESTART_OPTION) $(VOLUME_MAP) $(DOCKER_IMAGE):$(VERSION)
 
