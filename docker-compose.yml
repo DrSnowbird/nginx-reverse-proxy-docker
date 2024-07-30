@@ -14,16 +14,16 @@ services:
     ports:
       ## openkbs/jetty-fileserver 
       ## - Proxy access [38443 / 38080] -> 18080 -> 8080
-      - 38843
-      - 38080
+      - 38443:38443
+      - 38080:38080
       ## openkbs/blazegraph-docker 
       ## - Proxy access [39443 / 39999] -> 9999 -> 9999
-      - 39443
-      - 39999  
+      - 39443:39443
+      - 39999:39999 
       ## openkbs/jena-fuseki-docker 
       ## - Proxy access [33843 / 33030] -> 13030 -> 3030
-      - 33843
-      - 33030
+      - 33843:33843
+      - 33030:33030
     volumes:
       - ./etc/nginx:/etc/nginx
       
